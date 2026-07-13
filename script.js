@@ -173,74 +173,96 @@ function updateProgress() {
 }
 
 // ==================== CAMERA HELPERS ====================
+let videoDevices = [];
+let deviceIndex = 0; // 0 = front, 1 = rear (typical on phones)
+
+async function enumerateCameras() {
+    // First, request permission to get labels
+    try {
+        const tempStream = await navigator.mediaDevices.getUserMedia({ video: true });
+        tempStream.getTracks().forEach(t => t.stop());
+    } catch (e) {
+        log('Camera permission denied', 'error');
+        return;
+    }
+
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    videoDevices = devices.filter(d => d.kind === 'videoinput');
+    log('Found ' + videoDevices.length + ' cameras', 'info');
+
+    // Log all cameras for debugging
+    videoDevices.forEach((d, i) => {
+        log('Cam ' + i + ': ' + d.label, 'info');
+    });
+}
+
 async function getCameraStream(facing) {
-    const facingMode = facing || 'environment';
-
-    // Method 1: Try exact constraint
-    try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: { exact: facingMode }, width: { ideal: 1280 }, height: { ideal: 720 } }
-        });
-        log('Camera: exact ' + facingMode + ' succeeded', 'success');
-        return stream;
-    } catch (e) {
-        // Try next method
+    // Ensure we have enumerated devices
+    if (videoDevices.length === 0) {
+        await enumerateCameras();
     }
 
-    // Method 2: Try basic constraint
-    try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: facingMode, width: { ideal: 1280 }, height: { ideal: 720 } }
-        });
-        log('Camera: basic ' + facingMode + ' succeeded', 'success');
-        return stream;
-    } catch (e) {
-        // Try next method
-    }
+    const isRear = facing === 'environment';
 
-    // Method 3: Enumerate devices and pick by label
-    try {
-        const devices = await navigator.mediaDevices.enumerateDevices();
-        const videoDevices = devices.filter(d => d.kind === 'videoinput');
-        log('Found ' + videoDevices.length + ' video devices', 'info');
-
+    // If we have device labels, pick by label
+    if (videoDevices.length > 0 && videoDevices[0].label) {
         let targetDevice = null;
-        const isRear = facingMode === 'environment';
         const searchTerms = isRear
-            ? ['back', 'rear', 'environment', 'belakang']
-            : ['front', 'user', 'depan', 'selfie'];
+            ? ['back', 'rear', 'environment', 'belakang', 'wide']
+            : ['front', 'user', 'depan', 'selfie', 'facetime'];
 
         for (const device of videoDevices) {
             const label = device.label.toLowerCase();
             for (const term of searchTerms) {
                 if (label.includes(term)) {
                     targetDevice = device;
-                    log('Picked device: ' + device.label, 'info');
+                    log('Picked by label: ' + device.label, 'info');
                     break;
                 }
             }
             if (targetDevice) break;
         }
 
-        // Fallback: rear = last device, front = first device
-        if (!targetDevice && videoDevices.length > 0) {
-            targetDevice = isRear
-                ? videoDevices[videoDevices.length - 1]
-                : videoDevices[0];
-            log('Fallback device: ' + targetDevice.label, 'info');
+        // Fallback by index: rear = last, front = first
+        if (!targetDevice) {
+            const idx = isRear ? videoDevices.length - 1 : 0;
+            targetDevice = videoDevices[idx];
+            log('Fallback by index: ' + idx + ' = ' + targetDevice.label, 'info');
         }
 
         if (targetDevice) {
-            const stream = await navigator.mediaDevices.getUserMedia({
-                video: { deviceId: { exact: targetDevice.deviceId }, width: { ideal: 1280 }, height: { ideal: 720 } }
-            });
-            return stream;
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { deviceId: { exact: targetDevice.deviceId }, width: { ideal: 1280 }, height: { ideal: 720 } }
+                });
+                return stream;
+            } catch (e) {
+                log('DeviceId failed, trying facingMode', 'warning');
+            }
         }
-    } catch (e) {
-        // Method 3 failed
     }
 
-    // Method 4: Any camera
+    // Fallback: use facingMode constraint
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: { exact: isRear ? 'environment' : 'user' }, width: { ideal: 1280 }, height: { ideal: 720 } }
+        });
+        log('Exact facingMode succeeded', 'success');
+        return stream;
+    } catch (e) {
+        // Try without exact
+    }
+
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: isRear ? 'environment' : 'user', width: { ideal: 1280 }, height: { ideal: 720 } }
+        });
+        log('Basic facingMode succeeded', 'success');
+        return stream;
+    } catch (e) {
+        // Any camera
+    }
+
     log('Using any available camera', 'warning');
     return await navigator.mediaDevices.getUserMedia({
         video: { width: { ideal: 1280 }, height: { ideal: 720 } }
