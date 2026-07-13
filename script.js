@@ -170,12 +170,75 @@ function updateProgress() {
     document.getElementById('progressText').textContent = batchIndex + ' / ' + batchQueue.length + ' processed';
 }
 
+// ==================== CAMERA HELPERS ====================
+async function getRearCameraStream() {
+    // Method 1: Try exact environment constraint
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: { exact: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }
+        });
+        return stream;
+    } catch (e) {
+        // Method 1 failed, try fallback
+    }
+
+    // Method 2: Try basic environment (some phones need this)
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
+        });
+        return stream;
+    } catch (e) {
+        // Method 2 failed, try enumerating devices
+    }
+
+    // Method 3: Enumerate all video devices and pick the rear one by label
+    try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const videoDevices = devices.filter(d => d.kind === 'videoinput');
+
+        // Look for device with "back", "rear", "environment" in label
+        let rearDevice = null;
+        for (const device of videoDevices) {
+            const label = device.label.toLowerCase();
+            if (label.includes('back') || label.includes('rear') || label.includes('environment') || label.includes('belakang')) {
+                rearDevice = device;
+                break;
+            }
+        }
+
+        // If no rear found, pick the last device (often rear on phones)
+        if (!rearDevice && videoDevices.length > 1) {
+            rearDevice = videoDevices[videoDevices.length - 1];
+        }
+
+        // If still no rear, pick the first device
+        if (!rearDevice && videoDevices.length > 0) {
+            rearDevice = videoDevices[0];
+        }
+
+        if (rearDevice) {
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: { deviceId: { exact: rearDevice.deviceId }, width: { ideal: 1280 }, height: { ideal: 720 } }
+            });
+            return stream;
+        }
+    } catch (e) {
+        // Method 3 failed
+    }
+
+    // Method 4: Last resort - any camera
+    return await navigator.mediaDevices.getUserMedia({
+        video: { width: { ideal: 1280 }, height: { ideal: 720 } }
+    });
+}
+
 // ==================== ENROLLMENT CAMERA ====================
 async function startCamera() {
     try {
         stream = await navigator.mediaDevices.getUserMedia({
-    video: { facingMode: 'environment', width: { ideal: 640 }, height: { ideal: 480 } }
-});
+            video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } }
+        });
         const video = document.getElementById('videoElement');
         video.srcObject = stream;
         video.addEventListener('play', drawFaceOverlay);
@@ -248,8 +311,8 @@ async function capturePhoto() {
 async function startRecognitionCamera() {
     try {
         testStream = await navigator.mediaDevices.getUserMedia({
-    video: { facingMode: 'environment', width: { ideal: 640 }, height: { ideal: 480 } }
-});
+            video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } }
+        });
         const video = document.getElementById('testVideoElement');
         video.srcObject = testStream;
         video.addEventListener('play', startLiveRecognition);
