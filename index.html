@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Face Descriptor Enrollment</title>
+    <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.js"></script>
+    <link rel="stylesheet" href="style.css">
+    <base target="_blank">
+<base target="_blank">
+</head>
+<body>
+    <div class="loading-screen" id="loadingScreen">
+        <div class="loading-icon">&#x1F504;</div>
+        <div class="loading-title">Face Descriptor App</div>
+        <div class="loading-status" id="loadingStatus">Initializing...</div>
+        <div class="loading-bar-wrap">
+            <div class="loading-bar-fill" id="loadingBarFill"></div>
+        </div>
+        <div class="loading-error" id="loadingError"></div>
+        <button class="retry-btn" id="retryBtn" onclick="initApp()">Retry</button>
+    </div>
+
+    <div class="container" id="appContainer" style="display: none;">
+        <h1>&#x1F4F7; Face Descriptor Enrollment</h1>
+        <p class="subtitle">Extract face numbers &amp; store in Google Sheets</p>
+
+        <div class="section active" id="mainSection">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                <span class="status-badge status-disconnected" id="connBadge">
+                    <span style="color: #ef4444;">&#9679;</span> <span id="connText">Connecting...</span>
+                </span>
+            </div>
+
+            <div class="mode-grid">
+                <div class="mode-card" onclick="showUploadMode()">
+                    <div class="icon">&#x1F4C1;</div>
+                    <div class="label">Upload Photos</div>
+                    <div class="sublabel">Batch up to 20 photos</div>
+                </div>
+                <div class="mode-card" onclick="showCameraMode()">
+                    <div class="icon">&#x1F4F7;</div>
+                    <div class="label">Take Photo</div>
+                    <div class="sublabel">Use camera live</div>
+                </div>
+                <div class="mode-card" onclick="showTestMode()">
+                    <div class="icon">&#x1F9EA;</div>
+                    <div class="label">Test Recognition</div>
+                    <div class="sublabel">Live face matching</div>
+                </div>
+                <div class="mode-card" onclick="exportLocalData()">
+                    <div class="icon">&#x1F4E5;</div>
+                    <div class="label">Export Data</div>
+                    <div class="sublabel">Download CSV backup</div>
+                </div>
+            </div>
+
+            <div class="log-wrap" style="margin-top: 16px;">
+                <h3>&#x1F4CB; Activity Log</h3>
+                <div id="activityLog"></div>
+            </div>
+        </div>
+
+        <div class="section" id="uploadSection">
+            <button class="back-btn" onclick="showMainMode()">&#8592; Back to Menu</button>
+            <h2>&#x1F4C1; Batch Upload</h2>
+            <p>Select up to 20 student photos. Each processed one by one.</p>
+
+            <div class="upload-area" onclick="document.getElementById('fileInput').click()">
+                <div class="icon">&#x1F4E4;</div>
+                <p>Tap to select photos</p>
+                <p class="limit">Maximum 20 photos per batch</p>
+            </div>
+            <input type="file" id="fileInput" multiple accept="image/*" onchange="handleFileSelect(event)">
+
+            <div class="progress-wrap" id="uploadProgress">
+                <div class="progress-bar">
+                    <div class="progress-fill" id="progressFill" style="width: 0%"></div>
+                </div>
+                <div class="progress-text" id="progressText">0 / 0 processed</div>
+            </div>
+        </div>
+
+        <div class="section" id="cameraSection">
+            <button class="back-btn" onclick="stopCamera(); showMainMode()">&#8592; Back to Menu</button>
+            <h2>&#x1F4F7; Camera Capture</h2>
+            <p>Position the student's face clearly in the frame.</p>
+
+            <div class="camera-container">
+                <video id="videoElement" autoplay playsinline></video>
+                <canvas id="cameraCanvas"></canvas>
+            </div>
+
+            <div class="camera-controls">
+                <button class="btn btn-primary" id="captureBtn" onclick="capturePhoto()">&#x1F4F8; Capture</button>
+                <button class="btn btn-secondary" onclick="stopCamera(); startCamera()">&#x1F504; Restart</button>
+            </div>
+
+            <p class="camera-hint">Ensure good lighting. Only one face per capture.</p>
+        </div>
+
+        <!-- TEST / RECOGNITION SECTION -->
+        <div class="section" id="testSection">
+            <button class="back-btn" onclick="stopRecognition(); showMainMode()">&#8592; Back to Menu</button>
+            <h2>&#x1F9EA; Live Recognition Test</h2>
+            <p>Point camera at a face. The system will automatically recognize and label it.</p>
+
+            <div class="camera-container">
+                <video id="testVideoElement" autoplay playsinline></video>
+                <canvas id="testCameraCanvas"></canvas>
+            </div>
+
+            <div class="camera-controls">
+                <button class="btn btn-secondary" onclick="stopRecognition(); startRecognitionCamera()">&#x1F504; Restart Camera</button>
+            </div>
+
+            <p class="camera-hint">
+                <span style="color: #22c55e;">&#9679; Green</span> = Recognized &nbsp;|&nbsp;
+                <span style="color: #ef4444;">&#9679; Red</span> = Unknown &nbsp;|&nbsp;
+                <span style="color: #f59e0b;">&#9679; Amber</span> = No data
+            </p>
+        </div>
+
+        <canvas id="processCanvas" style="display: none;"></canvas>
+    </div>
+
+    <div class="dialog-overlay" id="nameDialog">
+        <div class="dialog-box">
+            <h3>&#x1F464; Who is this?</h3>
+            <img class="dialog-preview" id="dialogPreview" src="" alt="Face">
+
+            <div class="overwrite-warning" id="overwriteWarning">
+                &#9888; <span id="overwriteName"></span> already exists. Overwrite?
+            </div>
+
+            <label>Select from existing</label>
+            <select id="nameSelect" onchange="handleNameSelect()">
+                <option value="">-- No data stored --</option>
+            </select>
+
+            <label>Or type new name</label>
+            <input type="text" id="nameInput" placeholder="Enter student name" oninput="checkExistingName()">
+
+            <div class="dialog-buttons">
+                <button class="btn btn-success" id="saveBtn" onclick="saveFaceData()">&#x1F4BE; Save</button>
+                <button class="btn btn-secondary" onclick="skipFace()">&#9197; Skip</button>
+                <button class="btn btn-danger btn-full" onclick="cancelDialog()">&#10060; Cancel Batch</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+    <script src="script.js" defer></script>
+</body>
+</html>
