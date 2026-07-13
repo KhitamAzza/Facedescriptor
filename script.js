@@ -1,8 +1,9 @@
 const API_URL = 'https://script.google.com/macros/s/AKfycbzlsQBNPEfOPqMx1Ka03sWb4OUYGa5o3sqSaOLyknxdMm8hlXD9E3qPa9OeZ5krKB28Rw/exec';
 
 let modelsLoaded = false;
-let existingNames = [];
-let storedDescriptors = []; // [{name: "Budi", descriptor: [...]}, ...]
+let existingStudents = []; // {role, name, kelas}
+let existingRoles = [];    // ['Guru', 'Siswa', ...]
+let storedDescriptors = []; // [{name, "descriptor": [...]}, ...]
 let currentFaceDescriptor = null;
 let currentFaceImage = null;
 let currentFileName = '';
@@ -12,9 +13,9 @@ let batchIndex = 0;
 let batchResults = { saved: 0, skipped: 0, errors: 0 };
 let stream = null;
 let testStream = null;
-let localData = [];
+let localData = []; // {role, name, kelas, descriptor}
 let recognitionInterval = null;
-let cameraFacing = 'environment'; // 'environment' = rear, 'user' = front
+let cameraFacing = 'environment';
 let testCameraFacing = 'environment';
 
 // ==================== LOADING ====================
@@ -52,15 +53,25 @@ async function initApp() {
 
     setLoading('Connecting to Google Sheets...', 60);
     try {
-        const response = await fetch(API_URL + '?action=names', { method: 'GET' });
-        if (!response.ok) throw new Error('HTTP ' + response.status);
-        const data = await response.json();
-        if (data.status === 'ok') {
-            existingNames = data.names || [];
-            updateConnectionBadge(true, existingNames.length);
-            log('Connected. ' + existingNames.length + ' students in sheet.', 'success');
+        const [studentsRes, rolesRes] = await Promise.all([
+            fetch(API_URL + '?action=students', { method: 'GET' }),
+            fetch(API_URL + '?action=roles', { method: 'GET' })
+        ]);
+
+        const studentsData = await studentsRes.json();
+        const rolesData = await rolesRes.json();
+
+        if (studentsData.status === 'ok') {
+            existingStudents = studentsData.students || [];
+            updateConnectionBadge(true, existingStudents.length);
+            log('Connected. ' + existingStudents.length + ' students in sheet.', 'success');
         } else {
-            throw new Error(data.message || 'Unknown error');
+            throw new Error(studentsData.message || 'Unknown error');
+        }
+
+        if (rolesData.status === 'ok') {
+            existingRoles = rolesData.roles || [];
+            populateRoleDatalist();
         }
     } catch (err) {
         setLoading('Connection failed', 60, 'Could not connect to Google Sheets. ' + err.message + ' The app will work offline. Data will be saved locally and can be exported later.');
@@ -79,10 +90,10 @@ function updateConnectionBadge(connected, count) {
     const badge = document.getElementById('connBadge');
     if (connected) {
         badge.className = 'status-badge status-connected';
-        badge.innerHTML = '<span style="color: #22c55e;">●</span> <span id="connText">' + count + ' students</span>';
+        badge.innerHTML = '<span style="color: #22c55e;">&#9679;</span> <span id="connText">' + count + ' students</span>';
     } else {
         badge.className = 'status-badge status-disconnected';
-        badge.innerHTML = '<span style="color: #ef4444;">●</span> <span id="connText">Offline mode</span>';
+        badge.innerHTML = '<span style="color: #ef4444;">&#9679;</span> <span id="connText">Offline mode</span>';
     }
 }
 
@@ -174,13 +185,9 @@ function updateProgress() {
 
 // ==================== CAMERA HELPERS ====================
 let videoDevices = [];
-
-// Labels that indicate a lens we do NOT want, even if it also matches a
-// "rear"/"front" search term (ultra-wide, telephoto, macro, depth sensors).
 const EXCLUDE_TERMS = ['wide', 'ultra', 'tele', 'macro', 'depth', '0.5x', '2x', '3x'];
 
 async function enumerateCameras() {
-    // First, request permission to get labels
     try {
         const tempStream = await navigator.mediaDevices.getUserMedia({ video: true });
         tempStream.getTracks().forEach(t => t.stop());
@@ -192,22 +199,16 @@ async function enumerateCameras() {
     const devices = await navigator.mediaDevices.enumerateDevices();
     videoDevices = devices.filter(d => d.kind === 'videoinput');
     log('Found ' + videoDevices.length + ' cameras', 'info');
-
-    // Log all cameras for debugging
-    videoDevices.forEach((d, i) => {
-        log('Cam ' + i + ': ' + d.label, 'info');
-    });
+    videoDevices.forEach((d, i) => { log('Cam ' + i + ': ' + d.label, 'info'); });
 }
 
 async function getCameraStream(facing) {
-    // Ensure we have enumerated devices
     if (videoDevices.length === 0) {
         await enumerateCameras();
     }
 
     const isRear = facing === 'environment';
 
-    // If we have device labels, pick by label
     if (videoDevices.length > 0 && videoDevices[0].label) {
         let targetDevice = null;
         const searchTerms = isRear
@@ -216,9 +217,6 @@ async function getCameraStream(facing) {
 
         for (const device of videoDevices) {
             const label = device.label.toLowerCase();
-
-            // Skip ultra-wide / telephoto / macro / depth lenses so we land
-            // on the normal (main) lens instead.
             const isExcluded = EXCLUDE_TERMS.some(term => label.includes(term));
             if (isExcluded) continue;
 
@@ -232,7 +230,6 @@ async function getCameraStream(facing) {
             if (targetDevice) break;
         }
 
-        // Fallback by index: rear = last, front = first
         if (!targetDevice) {
             const idx = isRear ? videoDevices.length - 1 : 0;
             targetDevice = videoDevices[idx];
@@ -251,16 +248,13 @@ async function getCameraStream(facing) {
         }
     }
 
-    // Fallback: use facingMode constraint
     try {
         const stream = await navigator.mediaDevices.getUserMedia({
             video: { facingMode: { exact: isRear ? 'environment' : 'user' }, width: { ideal: 1280 }, height: { ideal: 720 } }
         });
         log('Exact facingMode succeeded', 'success');
         return stream;
-    } catch (e) {
-        // Try without exact
-    }
+    } catch (e) {}
 
     try {
         const stream = await navigator.mediaDevices.getUserMedia({
@@ -268,9 +262,7 @@ async function getCameraStream(facing) {
         });
         log('Basic facingMode succeeded', 'success');
         return stream;
-    } catch (e) {
-        // Any camera
-    }
+    } catch (e) {}
 
     log('Using any available camera', 'warning');
     return await navigator.mediaDevices.getUserMedia({
@@ -398,13 +390,11 @@ async function startLiveRecognition() {
     canvas.width = video.videoWidth || 640;
     canvas.height = video.videoHeight || 480;
 
-    // Load stored descriptors from sheet + local
     await loadStoredDescriptors();
 
     recognitionInterval = setInterval(async () => {
         if (video.paused || video.ended) return;
 
-        // Detect faces with descriptors
         const detections = await faceapi.detectAllFaces(
             video,
             new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.5 })
@@ -413,7 +403,6 @@ async function startLiveRecognition() {
         ctx.clearRect(0, 0, canvas.width, canvas.height);
 
         if (detections.length === 0) {
-            // No face - show idle state
             ctx.fillStyle = 'rgba(100, 116, 139, 0.7)';
             ctx.font = 'bold 16px sans-serif';
             ctx.textAlign = 'center';
@@ -425,7 +414,6 @@ async function startLiveRecognition() {
             const box = det.detection.box;
             const liveDescriptor = Array.from(det.descriptor);
 
-            // Match against stored descriptors
             let bestMatch = null;
             let bestDistance = Infinity;
 
@@ -439,62 +427,55 @@ async function startLiveRecognition() {
                 }
             }
 
-            // Determine label and color
             let label, boxColor, textColor;
             const threshold = 0.6;
 
             if (storedDescriptors.length === 0) {
                 label = '📭 Database empty';
-                boxColor = '#f59e0b'; // amber
+                boxColor = '#f59e0b';
                 textColor = '#fbbf24';
             } else if (bestMatch && bestDistance < threshold) {
                 const confidence = ((1 - bestDistance) * 100).toFixed(0);
                 label = '\u2705 ' + bestMatch.name + ' (' + confidence + '%)';
-                boxColor = '#22c55e'; // green
+                boxColor = '#22c55e';
                 textColor = '#86efac';
             } else {
                 label = '\u274C Not in database';
-                boxColor = '#ef4444'; // red
+                boxColor = '#ef4444';
                 textColor = '#fca5a5';
             }
 
-            // Draw box
             ctx.strokeStyle = boxColor;
             ctx.lineWidth = 3;
             ctx.strokeRect(box.x, box.y, box.width, box.height);
 
-            // Draw label background
             const padding = 6;
             ctx.font = 'bold 15px sans-serif';
             const textWidth = ctx.measureText(label).width;
             ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
             ctx.fillRect(box.x, box.y - 28, textWidth + padding * 2, 26);
 
-            // Draw label text
             ctx.fillStyle = textColor;
             ctx.textAlign = 'left';
             ctx.fillText(label, box.x + padding, box.y - 8);
         });
-    }, 500); // Every 500ms
+    }, 500);
 }
 
 async function loadStoredDescriptors() {
     storedDescriptors = [];
 
-    // Fetch full descriptors from sheet
     try {
         const response = await fetch(API_URL + '?action=descriptors', { method: 'GET' });
         const data = await response.json();
         if (data.status === 'ok' && data.students) {
             storedDescriptors = data.students;
-            existingNames = data.students.map(s => s.name);
             log('Loaded ' + storedDescriptors.length + ' descriptors from sheet', 'info');
         }
     } catch (e) {
         log('Sheet offline. Using local data only.', 'warning');
     }
 
-    // Also add any locally saved data not yet synced
     for (const local of localData) {
         const exists = storedDescriptors.some(s => s.name === local.name);
         if (!exists) {
@@ -551,47 +532,102 @@ async function detectFace(imageElement) {
     return { descriptor, canvas };
 }
 
-// ==================== NAME DIALOG ====================
+// ==================== NAME DIALOG (TYPE TO SEARCH) ====================
+function populateRoleDatalist() {
+    const datalist = document.getElementById('roleDatalist');
+    if (!datalist) return;
+    datalist.innerHTML = '';
+    existingRoles.forEach(role => {
+        const opt = document.createElement('option');
+        opt.value = role;
+        datalist.appendChild(opt);
+    });
+}
+
 function showNameDialog(source) {
     const dialog = document.getElementById('nameDialog');
-    const select = document.getElementById('nameSelect');
     const preview = document.getElementById('dialogPreview');
-
     preview.src = currentFaceImage.toDataURL('image/jpeg');
 
-    select.innerHTML = '';
-    if (existingNames.length === 0) {
-        select.innerHTML = '<option value="">No data stored in sheet</option>';
-    } else {
-        select.innerHTML = '<option value="">-- Select existing name --</option>';
-        existingNames.forEach(name => {
-            const opt = document.createElement('option');
-            opt.value = name;
-            opt.textContent = name;
-            select.appendChild(opt);
-        });
-    }
+    const nameInput = document.getElementById('nameInput');
+    const suggestions = document.getElementById('nameSuggestions');
 
-    document.getElementById('nameInput').value = '';
+    nameInput.value = '';
+    document.getElementById('roleInput').value = '';
+    document.getElementById('newNameInput').value = '';
+    document.getElementById('kelasInput').value = '';
+    suggestions.innerHTML = '';
+    suggestions.style.display = 'none';
     document.getElementById('overwriteWarning').classList.remove('active');
     document.getElementById('saveBtn').textContent = '\u{1F4BE} Save';
+
+    // Pre-fill search with filename (minus extension) for convenience
+    if (source && source !== 'Camera') {
+        const suggested = source.replace(/\.[^/.]+$/, "").replace(/[_-]/g, " ");
+        nameInput.value = suggested;
+        filterNames();
+    }
 
     dialog.classList.add('active');
 }
 
-function handleNameSelect() {
-    const select = document.getElementById('nameSelect');
+function filterNames() {
     const input = document.getElementById('nameInput');
-    if (select.value) { input.value = select.value; checkExistingName(); }
+    const suggestions = document.getElementById('nameSuggestions');
+    const query = input.value.trim().toLowerCase();
+
+    if (query.length === 0) {
+        suggestions.innerHTML = '';
+        suggestions.style.display = 'none';
+        return;
+    }
+
+    const matches = existingStudents.filter(s => s.name.toLowerCase().includes(query));
+
+    if (matches.length === 0) {
+        suggestions.innerHTML = '<div class="suggestion-item no-match">No matches. Fill below to add new entry.</div>';
+        suggestions.style.display = 'block';
+        document.getElementById('newNameInput').value = input.value;
+        document.getElementById('roleInput').value = '';
+        document.getElementById('kelasInput').value = '';
+        checkExistingName();
+        return;
+    }
+
+    suggestions.innerHTML = '';
+    matches.forEach(student => {
+        const div = document.createElement('div');
+        div.className = 'suggestion-item';
+        div.innerHTML = `<strong>${escapeHtml(student.name)}</strong><span>${escapeHtml(student.role || '-')} &middot; ${escapeHtml(student.kelas || '-')}</span>`;
+        div.onclick = () => selectStudent(student);
+        suggestions.appendChild(div);
+    });
+    suggestions.style.display = 'block';
+}
+
+function selectStudent(student) {
+    document.getElementById('nameInput').value = student.name;
+    document.getElementById('newNameInput').value = student.name;
+    document.getElementById('roleInput').value = student.role || '';
+    document.getElementById('kelasInput').value = student.kelas || '';
+    document.getElementById('nameSuggestions').style.display = 'none';
+    checkExistingName();
+}
+
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
 }
 
 function checkExistingName() {
-    const name = document.getElementById('nameInput').value.trim();
+    const name = document.getElementById('newNameInput').value.trim();
     const warning = document.getElementById('overwriteWarning');
     const saveBtn = document.getElementById('saveBtn');
     const overwriteName = document.getElementById('overwriteName');
 
-    if (existingNames.includes(name)) {
+    const exists = existingStudents.some(s => s.name.toLowerCase() === name.toLowerCase());
+    if (exists) {
         warning.classList.add('active');
         overwriteName.textContent = name;
         saveBtn.textContent = 'Overwrite';
@@ -602,22 +638,25 @@ function checkExistingName() {
 }
 
 async function saveFaceData() {
-    const name = document.getElementById('nameInput').value.trim();
+    const role  = document.getElementById('roleInput').value.trim();
+    const name  = document.getElementById('newNameInput').value.trim();
+    const kelas = document.getElementById('kelasInput').value.trim();
+
     if (!name) { showToast('Please enter a name', 'error'); return; }
+    if (!role) { showToast('Please enter a role', 'error'); return; }
 
     const saveBtn = document.getElementById('saveBtn');
     saveBtn.disabled = true;
     saveBtn.innerHTML = '<span class="spinner"></span> Saving...';
 
     try {
-        let success = false;
-        let action = 'new';
-
         const response = await fetch(API_URL, {
             method: 'POST',
             body: JSON.stringify({
                 action: 'save',
+                role: role,
                 name: name,
+                kelas: kelas,
                 descriptor: currentFaceDescriptor
             })
         });
@@ -625,29 +664,45 @@ async function saveFaceData() {
         const result = await response.json();
 
         if (result.status === 'ok') {
-            success = true;
-            action = result.action || 'new';
-            if (!existingNames.includes(name)) existingNames.push(name);
+            const action = result.action || 'new';
+            const idx = existingStudents.findIndex(s => s.name.toLowerCase() === name.toLowerCase());
+            if (idx >= 0) {
+                existingStudents[idx] = { role, name, kelas };
+            } else {
+                existingStudents.push({ role, name, kelas });
+            }
+            if (!existingRoles.includes(role)) {
+                existingRoles.push(role);
+                populateRoleDatalist();
+            }
+
+            log((action === 'overwrite' ? 'Overwritten' : 'Saved') + ': ' + name, 'success');
+            batchResults.saved++;
+            showToast((action === 'overwrite' ? 'Overwritten' : 'Saved') + ': ' + name, 'success');
         } else {
             throw new Error(result.message);
         }
 
-        if (success) {
-            log((action === 'overwrite' ? 'Overwritten' : 'Saved') + ': ' + name, 'success');
-            batchResults.saved++;
-            showToast((action === 'overwrite' ? 'Overwritten' : 'Saved') + ': ' + name, 'success');
-        }
-
     } catch (err) {
+        const localEntry = { role, name, kelas, descriptor: currentFaceDescriptor };
         const existingIndex = localData.findIndex(d => d.name === name);
         if (existingIndex >= 0) {
-            localData[existingIndex] = { name, descriptor: currentFaceDescriptor };
+            localData[existingIndex] = localEntry;
             log('Saved locally (overwrite): ' + name, 'warning');
         } else {
-            localData.push({ name, descriptor: currentFaceDescriptor });
-            if (!existingNames.includes(name)) existingNames.push(name);
+            localData.push(localEntry);
             log('Saved locally: ' + name, 'warning');
         }
+
+        const idx = existingStudents.findIndex(s => s.name.toLowerCase() === name.toLowerCase());
+        if (idx >= 0) existingStudents[idx] = { role, name, kelas };
+        else existingStudents.push({ role, name, kelas });
+
+        if (!existingRoles.includes(role)) {
+            existingRoles.push(role);
+            populateRoleDatalist();
+        }
+
         batchResults.saved++;
         showToast('Saved locally (sheet offline)', 'info');
     }
@@ -672,19 +727,31 @@ function cancelDialog() {
 
 function closeDialog() {
     document.getElementById('nameDialog').classList.remove('active');
+    document.getElementById('nameSuggestions').style.display = 'none';
     currentFaceDescriptor = null;
     currentFaceImage = null;
 }
 
 // ==================== EXPORT ====================
+function escapeCsv(text) {
+    if (!text) return '';
+    text = text.toString();
+    if (text.includes(',') || text.includes('"') || text.includes('\n')) {
+        return '"' + text.replace(/"/g, '""') + '"';
+    }
+    return text;
+}
+
 function exportLocalData() {
-    if (localData.length === 0 && existingNames.length === 0) {
+    if (localData.length === 0 && existingStudents.length === 0) {
         showToast('No data to export', 'info');
         return;
     }
 
-    const rows = localData.map(d => d.name + ',' + JSON.stringify(d.descriptor));
-    const csv = 'Name,FaceDescriptor\n' + rows.join('\n');
+    const rows = localData.map(d =>
+        `${escapeCsv(d.role)},${escapeCsv(d.name)},${escapeCsv(d.kelas)},"${JSON.stringify(d.descriptor)}"`
+    );
+    const csv = 'Role,Nama,Kelas/Mapel,FaceDescriptor\n' + rows.join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
