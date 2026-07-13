@@ -174,7 +174,10 @@ function updateProgress() {
 
 // ==================== CAMERA HELPERS ====================
 let videoDevices = [];
-let deviceIndex = 0; // 0 = front, 1 = rear (typical on phones)
+
+// Labels that indicate a lens we do NOT want, even if it also matches a
+// "rear"/"front" search term (ultra-wide, telephoto, macro, depth sensors).
+const EXCLUDE_TERMS = ['wide', 'ultra', 'tele', 'macro', 'depth', '0.5x', '2x', '3x'];
 
 async function enumerateCameras() {
     // First, request permission to get labels
@@ -208,11 +211,17 @@ async function getCameraStream(facing) {
     if (videoDevices.length > 0 && videoDevices[0].label) {
         let targetDevice = null;
         const searchTerms = isRear
-            ? ['back', 'rear', 'environment', 'belakang', 'wide']
+            ? ['back', 'rear', 'environment', 'belakang']
             : ['front', 'user', 'depan', 'selfie', 'facetime'];
 
         for (const device of videoDevices) {
             const label = device.label.toLowerCase();
+
+            // Skip ultra-wide / telephoto / macro / depth lenses so we land
+            // on the normal (main) lens instead.
+            const isExcluded = EXCLUDE_TERMS.some(term => label.includes(term));
+            if (isExcluded) continue;
+
             for (const term of searchTerms) {
                 if (label.includes(term)) {
                     targetDevice = device;
@@ -288,13 +297,11 @@ function setTestCameraFacing(facing) {
 // ==================== ENROLLMENT CAMERA ====================
 async function startCamera() {
     try {
-        stream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } }
-        });
+        stream = await getCameraStream(cameraFacing);
         const video = document.getElementById('videoElement');
         video.srcObject = stream;
         video.addEventListener('play', drawFaceOverlay);
-        log('Camera on', 'info');
+        log('Camera on (' + cameraFacing + ')', 'info');
     } catch (err) {
         log('Camera error: ' + err.message, 'error');
         showToast('Cannot access camera.', 'error');
@@ -362,13 +369,11 @@ async function capturePhoto() {
 // ==================== LIVE RECOGNITION (TEST MODULE) ====================
 async function startRecognitionCamera() {
     try {
-        testStream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } }
-        });
+        testStream = await getCameraStream(testCameraFacing);
         const video = document.getElementById('testVideoElement');
         video.srcObject = testStream;
         video.addEventListener('play', startLiveRecognition);
-        log('Recognition camera on', 'info');
+        log('Recognition camera on (' + testCameraFacing + ')', 'info');
     } catch (err) {
         log('Recognition camera error: ' + err.message, 'error');
         showToast('Cannot access camera.', 'error');
