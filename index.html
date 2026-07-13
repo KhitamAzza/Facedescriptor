@@ -86,6 +86,11 @@
             <h2>&#x1F4F7; Camera Capture</h2>
             <p>Position the student's face clearly in the frame.</p>
 
+            <div class="camera-toggle">
+                <button class="toggle-btn active" id="camRearBtn" onclick="setCameraFacing('environment')">&#x1F4F7; Rear</button>
+                <button class="toggle-btn" id="camFrontBtn" onclick="setCameraFacing('user')">&#x1F464; Front</button>
+            </div>
+
             <div class="camera-container">
                 <video id="videoElement" autoplay playsinline></video>
                 <canvas id="cameraCanvas"></canvas>
@@ -104,6 +109,11 @@
             <button class="back-btn" onclick="stopRecognition(); showMainMode()">&#8592; Back to Menu</button>
             <h2>&#x1F9EA; Live Recognition Test</h2>
             <p>Point camera at a face. The system will automatically recognize and label it.</p>
+
+            <div class="camera-toggle">
+                <button class="toggle-btn active" id="testCamRearBtn" onclick="setTestCameraFacing('environment')">&#x1F4F7; Rear</button>
+                <button class="toggle-btn" id="testCamFrontBtn" onclick="setTestCameraFacing('user')">&#x1F464; Front</button>
+            </div>
 
             <div class="camera-container">
                 <video id="testVideoElement" autoplay playsinline></video>
