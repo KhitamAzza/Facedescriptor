@@ -14,6 +14,8 @@ let stream = null;
 let testStream = null;
 let localData = [];
 let recognitionInterval = null;
+let cameraFacing = 'environment'; // 'environment' = rear, 'user' = front
+let testCameraFacing = 'environment';
 
 // ==================== LOADING ====================
 function setLoading(status, percent, errorMsg) {
@@ -171,55 +173,66 @@ function updateProgress() {
 }
 
 // ==================== CAMERA HELPERS ====================
-async function getRearCameraStream() {
-    // Method 1: Try exact environment constraint
+async function getCameraStream(facing) {
+    const facingMode = facing || 'environment';
+
+    // Method 1: Try exact constraint
     try {
         const stream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: { exact: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }
+            video: { facingMode: { exact: facingMode }, width: { ideal: 1280 }, height: { ideal: 720 } }
         });
+        log('Camera: exact ' + facingMode + ' succeeded', 'success');
         return stream;
     } catch (e) {
-        // Method 1 failed, try fallback
+        // Try next method
     }
 
-    // Method 2: Try basic environment (some phones need this)
+    // Method 2: Try basic constraint
     try {
         const stream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
+            video: { facingMode: facingMode, width: { ideal: 1280 }, height: { ideal: 720 } }
         });
+        log('Camera: basic ' + facingMode + ' succeeded', 'success');
         return stream;
     } catch (e) {
-        // Method 2 failed, try enumerating devices
+        // Try next method
     }
 
-    // Method 3: Enumerate all video devices and pick the rear one by label
+    // Method 3: Enumerate devices and pick by label
     try {
         const devices = await navigator.mediaDevices.enumerateDevices();
         const videoDevices = devices.filter(d => d.kind === 'videoinput');
+        log('Found ' + videoDevices.length + ' video devices', 'info');
 
-        // Look for device with "back", "rear", "environment" in label
-        let rearDevice = null;
+        let targetDevice = null;
+        const isRear = facingMode === 'environment';
+        const searchTerms = isRear
+            ? ['back', 'rear', 'environment', 'belakang']
+            : ['front', 'user', 'depan', 'selfie'];
+
         for (const device of videoDevices) {
             const label = device.label.toLowerCase();
-            if (label.includes('back') || label.includes('rear') || label.includes('environment') || label.includes('belakang')) {
-                rearDevice = device;
-                break;
+            for (const term of searchTerms) {
+                if (label.includes(term)) {
+                    targetDevice = device;
+                    log('Picked device: ' + device.label, 'info');
+                    break;
+                }
             }
+            if (targetDevice) break;
         }
 
-        // If no rear found, pick the last device (often rear on phones)
-        if (!rearDevice && videoDevices.length > 1) {
-            rearDevice = videoDevices[videoDevices.length - 1];
+        // Fallback: rear = last device, front = first device
+        if (!targetDevice && videoDevices.length > 0) {
+            targetDevice = isRear
+                ? videoDevices[videoDevices.length - 1]
+                : videoDevices[0];
+            log('Fallback device: ' + targetDevice.label, 'info');
         }
 
-        // If still no rear, pick the first device
-        if (!rearDevice && videoDevices.length > 0) {
-            rearDevice = videoDevices[0];
-        }
-
-        if (rearDevice) {
+        if (targetDevice) {
             const stream = await navigator.mediaDevices.getUserMedia({
-                video: { deviceId: { exact: rearDevice.deviceId }, width: { ideal: 1280 }, height: { ideal: 720 } }
+                video: { deviceId: { exact: targetDevice.deviceId }, width: { ideal: 1280 }, height: { ideal: 720 } }
             });
             return stream;
         }
@@ -227,10 +240,27 @@ async function getRearCameraStream() {
         // Method 3 failed
     }
 
-    // Method 4: Last resort - any camera
+    // Method 4: Any camera
+    log('Using any available camera', 'warning');
     return await navigator.mediaDevices.getUserMedia({
         video: { width: { ideal: 1280 }, height: { ideal: 720 } }
     });
+}
+
+function setCameraFacing(facing) {
+    cameraFacing = facing;
+    document.getElementById('camRearBtn').classList.toggle('active', facing === 'environment');
+    document.getElementById('camFrontBtn').classList.toggle('active', facing === 'user');
+    stopCamera();
+    startCamera();
+}
+
+function setTestCameraFacing(facing) {
+    testCameraFacing = facing;
+    document.getElementById('testCamRearBtn').classList.toggle('active', facing === 'environment');
+    document.getElementById('testCamFrontBtn').classList.toggle('active', facing === 'user');
+    stopRecognition();
+    startRecognitionCamera();
 }
 
 // ==================== ENROLLMENT CAMERA ====================
