@@ -174,8 +174,8 @@ function updateProgress() {
 async function startCamera() {
     try {
         stream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } }
-        });
+    video: { facingMode: 'environment', width: { ideal: 640 }, height: { ideal: 480 } }
+});
         const video = document.getElementById('videoElement');
         video.srcObject = stream;
         video.addEventListener('play', drawFaceOverlay);
@@ -248,8 +248,8 @@ async function capturePhoto() {
 async function startRecognitionCamera() {
     try {
         testStream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } }
-        });
+    video: { facingMode: 'environment', width: { ideal: 640 }, height: { ideal: 480 } }
+});
         const video = document.getElementById('testVideoElement');
         video.srcObject = testStream;
         video.addEventListener('play', startLiveRecognition);
