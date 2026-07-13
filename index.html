@@ -7,7 +7,6 @@
     <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.js"></script>
     <link rel="stylesheet" href="style.css">
     <base target="_blank">
-<base target="_blank">
 </head>
 <body>
     <div class="loading-screen" id="loadingScreen">
@@ -134,22 +133,35 @@
         <canvas id="processCanvas" style="display: none;"></canvas>
     </div>
 
+    <!-- NAME / ENROLLMENT DIALOG -->
     <div class="dialog-overlay" id="nameDialog">
         <div class="dialog-box">
             <h3>&#x1F464; Who is this?</h3>
             <img class="dialog-preview" id="dialogPreview" src="" alt="Face">
 
+            <!-- Search -->
+            <label>Search Name</label>
+            <div class="search-wrap">
+                <input type="text" id="nameInput" placeholder="Type to search..." autocomplete="off" oninput="filterNames()">
+                <div id="nameSuggestions" class="suggestions-list"></div>
+            </div>
+
+            <!-- Entry Form -->
+            <div class="entry-form">
+                <label>Role</label>
+                <input type="text" id="roleInput" list="roleDatalist" placeholder="e.g. Guru, Siswa, Staff">
+                <datalist id="roleDatalist"></datalist>
+
+                <label>Nama</label>
+                <input type="text" id="newNameInput" placeholder="Enter student name" oninput="checkExistingName()">
+
+                <label>Kelas / Mapel</label>
+                <input type="text" id="kelasInput" placeholder="e.g. XII-A / Matematika">
+            </div>
+
             <div class="overwrite-warning" id="overwriteWarning">
                 &#9888; <span id="overwriteName"></span> already exists. Overwrite?
             </div>
-
-            <label>Select from existing</label>
-            <select id="nameSelect" onchange="handleNameSelect()">
-                <option value="">-- No data stored --</option>
-            </select>
-
-            <label>Or type new name</label>
-            <input type="text" id="nameInput" placeholder="Enter student name" oninput="checkExistingName()">
 
             <div class="dialog-buttons">
                 <button class="btn btn-success" id="saveBtn" onclick="saveFaceData()">&#x1F4BE; Save</button>
