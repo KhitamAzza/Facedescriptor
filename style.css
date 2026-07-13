@@ -145,4 +145,36 @@ h1 { text-align: center; margin-bottom: 6px; font-size: 22px; color: #60a5fa; }
 .toast-info { background: #172554; color: #93c5fd; border: 1px solid #3b82f6; }
 .export-section { margin-top: 16px; padding-top: 16px; border-top: 1px solid #334155; }
 .export-section p { font-size: 12px; color: #64748b; margin-bottom: 10px; }
+
+/* Camera toggle */
+.camera-toggle {
+    display: flex;
+    gap: 8px;
+    justify-content: center;
+    margin-bottom: 16px;
+}
+.toggle-btn {
+    padding: 10px 20px;
+    border: 1px solid #475569;
+    border-radius: 8px;
+    background: #0f172a;
+    color: #94a3b8;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.toggle-btn:hover {
+    border-color: #64748b;
+    color: #e2e8f0;
+}
+.toggle-btn.active {
+    background: #3b82f6;
+    border-color: #3b82f6;
+    color: white;
+}
+
 @media (max-width: 480px) { body { padding: 12px; } h1 { font-size: 18px; } .mode-grid { grid-template-columns: 1fr; } }
